@@ -11,7 +11,7 @@
 	import { marked } from 'marked';
 	import DOMPurify from 'isomorphic-dompurify';
 	import type { TimelineEvent, EventImportance, TodoItem } from '$lib/api-types';
-	import { formatElapsedTime, formatDate, truncate } from '$lib/utils';
+	import { formatElapsedTime, formatDate, truncate, formatTokens } from '$lib/utils';
 	import { eventTypeConfig, getToolIcon } from './tool-icons';
 	import ToolCallDetail from './ToolCallDetail.svelte';
 	import TodoUpdateDetail from './TodoUpdateDetail.svelte';
@@ -134,6 +134,12 @@
 	const hasExpandableContent = $derived(
 		event.event_type === 'tool_call' ||
 			event.event_type === 'todo_update' ||
+			event.event_type === 'thinking' ||
+			event.event_type === 'response' ||
+			event.event_type === 'subagent_spawn' ||
+			event.event_type === 'skill_invocation' ||
+			event.event_type === 'command_invocation' ||
+			event.event_type === 'builtin_command' ||
 			event.metadata?.full_content ||
 			event.metadata?.full_thinking ||
 			event.metadata?.full_text ||
@@ -154,6 +160,27 @@
 	// 2. AND it's not the current agent being viewed (for agent timeline views)
 	const shouldShowActorBadge = $derived(
 		event.actor_type === 'subagent' && (!currentAgentId || event.actor !== currentAgentId)
+	);
+
+	// Token data for badge display (not for prompt type)
+	const tokenData = $derived.by(() => {
+		if (event.event_type === 'prompt') return null;
+		const input = event.metadata?.input_tokens as number | undefined;
+		const output = event.metadata?.output_tokens as number | undefined;
+		if (input || output) {
+			return {
+				input: input || 0,
+				output: output || 0,
+				total: (input || 0) + (output || 0)
+			};
+		}
+		return null;
+	});
+
+	// Event types that should display token badge
+	const tokenEventTypes = ['thinking', 'tool_call', 'response', 'todo_update', 'skill_invocation', 'command_invocation', 'builtin_command', 'subagent_spawn'];
+	const shouldShowTokenBadge = $derived(
+		tokenData && tokenEventTypes.includes(event.event_type)
 	);
 
 	function highlightText(text: string, query: string): string {
@@ -390,6 +417,14 @@
 				>
 					{formatElapsedTime(event.timestamp, sessionStartTime)}
 				</span>
+				{#if shouldShowTokenBadge}
+					<span
+						class="rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)]"
+						title="Input: {tokenData?.input}, Output: {tokenData?.output}"
+					>
+						{formatTokens(tokenData?.total)}
+					</span>
+				{/if}
 				{#if hasExpandableContent}
 					<button
 						class="rounded p-0.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)]"

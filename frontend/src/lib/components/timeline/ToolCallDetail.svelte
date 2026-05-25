@@ -36,6 +36,13 @@
 
 	let copiedSection = $state<string | null>(null);
 	let renderedPlanHtml = $state('');
+	let expanded = $state(false);
+
+	// Expandable content configuration
+	// Tools that should be collapsible when content exceeds threshold
+	const COLLAPSIBLE_TOOLS = new Set(['Write', 'Read', 'Edit', 'Bash','Shell']);
+	// Collapse content beyond this threshold
+	const COLLAPSE_THRESHOLD = 5000;
 
 	// Extract tool metadata
 	const toolName = $derived(event.metadata?.tool_name as string | undefined);
@@ -1273,29 +1280,44 @@
 				? resultContent
 				: JSON.stringify(resultContent, null, 2)}
 		{@const isError = resultStatus === 'error'}
-		{@const maxLength = 1000}
-		{@const truncated = content.length > maxLength}
+		{@const isCollapsibleTool = COLLAPSIBLE_TOOLS.has(toolName ?? '')}
+		{@const shouldCollapse = isCollapsibleTool && !expanded && content.length > COLLAPSE_THRESHOLD}
+		{@const displayContent = shouldCollapse
+			? content.slice(0, COLLAPSE_THRESHOLD) + '\n\n--- Output truncated ---'
+			: content}
 		<div>
-			<div class="flex items-center gap-2 mb-2">
-				<h4
-					class="text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-wide"
-				>
-					Result
-				</h4>
-				<span
-					class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium
-					{isError
-						? 'bg-[var(--error-subtle)] text-[var(--error)]'
-						: 'bg-[var(--success-subtle)] text-[var(--success)]'}"
-				>
-					{#if isError}
-						<AlertCircle size={10} />
-						error
-					{:else}
-						<CheckCircle2 size={10} />
-						success
-					{/if}
-				</span>
+			<div class="flex items-center justify-between gap-2 mb-2">
+				<div class="flex items-center gap-2">
+					<h4
+						class="text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-wide"
+					>
+						Result
+					</h4>
+					<span
+						class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium
+						{isError
+							? 'bg-[var(--error-subtle)] text-[var(--error)]'
+							: 'bg-[var(--success-subtle)] text-[var(--success)]'}"
+					>
+						{#if isError}
+							<AlertCircle size={10} />
+							error
+						{:else}
+							<CheckCircle2 size={10} />
+							success
+						{/if}
+					</span>
+				</div>
+				{#if isCollapsibleTool && (shouldCollapse || expanded)}
+					<button
+						onclick={() => expanded = !expanded}
+						class="text-xs text-[var(--accent)] hover:underline"
+					>
+						{expanded
+							? 'Show less'
+							: `Show more (${Math.round(content.length / 1024)}KB)`}
+					</button>
+				{/if}
 			</div>
 			<div
 				class="relative rounded-[var(--radius-md)] border p-3
@@ -1304,18 +1326,7 @@
 					: 'bg-[var(--bg-muted)] border-[var(--border)]'}"
 			>
 				<pre
-					class="font-mono text-xs whitespace-pre-wrap break-words text-[var(--text-secondary)]">{truncated
-						? content.slice(0, maxLength) + '\n...'
-						: content}</pre>
-				{#if truncated}
-					<div class="absolute bottom-2 right-2">
-						<span
-							class="text-xs text-[var(--text-muted)] bg-[var(--bg-base)]/80 px-2 py-1 rounded"
-						>
-							{Math.round(content.length / 1024)}KB total
-						</span>
-					</div>
-				{/if}
+					class="font-mono text-xs whitespace-pre-wrap break-words text-[var(--text-secondary)]">{displayContent}</pre>
 				<button
 					onclick={(e) => {
 						e.stopPropagation();

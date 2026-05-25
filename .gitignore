@@ -55,3 +55,6 @@ coverage/
 # package-lock.json
 # yarn.lock
 .worktrees/
+
+
+.project/

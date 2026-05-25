@@ -53,6 +53,11 @@ export interface TimelineEventMetadata {
 	is_plugin?: boolean;
 	plugin?: string;
 	image_attachments?: ImageAttachment[];
+	input_tokens?: number;
+	output_tokens?: number;
+	cache_creation_input_tokens?: number;
+	cache_read_input_tokens?: number;
+	cost_usd?: number;
 	[key: string]: unknown;
 }
 

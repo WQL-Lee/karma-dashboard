@@ -645,6 +645,7 @@ def collect_tool_results(
     message_source: MessageSource,
     extract_spawned_agent: bool = False,
     parse_xml: bool = False,
+    tool_results_dir: "Path | None" = None,
 ) -> dict[str, ToolResultData]:
     """
     Collect all tool results from user messages.
@@ -656,14 +657,24 @@ def collect_tool_results(
         message_source: Object with iter_messages() method (Session or Agent)
         extract_spawned_agent: If True, extract spawned agent IDs from content
         parse_xml: If True, parse XML-like content structure
+        tool_results_dir: Optional path to tool-results directory for reading full content
 
     Returns:
         Dict mapping tool_use_id -> ToolResultData
     """
-    from models import UserMessage
+    from models import AssistantMessage, ToolUseBlock, UserMessage
 
     results: dict[str, ToolResultData] = {}
 
+    # Pass 1: Collect tool_use_id -> tool_name mapping
+    tool_names: dict[str, str] = {}
+    for msg in message_source.iter_messages():
+        if isinstance(msg, AssistantMessage):
+            for block in msg.content_blocks:
+                if isinstance(block, ToolUseBlock):
+                    tool_names[block.id] = block.name
+
+    # Pass 2: Collect tool results
     for msg in message_source.iter_messages():
         if not isinstance(msg, UserMessage):
             continue
@@ -679,6 +690,7 @@ def collect_tool_results(
         if not tool_use_id:
             continue
 
+        tool_name = tool_names.get(tool_use_id)
         extracted_content = msg.content  # Already extracted by validator
 
         if extracted_content is not None:
@@ -697,20 +709,30 @@ def collect_tool_results(
             if parse_xml:
                 parsed_xml = parse_xml_like_content(extracted_content)
 
-            # Limit stored content size for display
-            # AskUserQuestion results are kept larger since they contain
-            # the question+answer pairs needed for UI rendering
-            is_ask_user = "has answered your questions" in extracted_content[:60]
-            max_len = 2000 if is_ask_user else 500
-            result_preview = (
-                extracted_content[:max_len]
-                if len(extracted_content) > max_len
-                else extracted_content
-            )
+            # Determine content based on tool type
+            if tool_name == "Read":
+                # Read tool: no truncation, try to read full content from file
+                if tool_results_dir:
+                    file_path = tool_results_dir / f"{tool_use_id}.txt"
+                    if file_path.exists():
+                        content = file_path.read_text(encoding="utf-8")
+                    else:
+                        content = extracted_content
+                else:
+                    content = extracted_content
+            else:
+                # Apply size limit only for ask_user, no truncation for other tools
+                is_ask_user = "has answered your questions" in extracted_content[:60]
+                max_len = 2000 if is_ask_user else 0
+                content = (
+                    extracted_content[:max_len]
+                    if max_len > 0 and len(extracted_content) > max_len
+                    else extracted_content
+                )
 
             results[tool_use_id] = ToolResultData(
                 timestamp=msg.timestamp,
-                content=result_preview,
+                content=content,
                 parsed=parsed_xml,
                 spawned_agent_id=spawned_agent_id,
             )
@@ -780,7 +802,9 @@ def get_tool_summary(block, working_dirs: list[str] | None = None) -> tuple[str,
         return "Write file", to_relative(path), {"path": path, "content": content}
     elif tool_name == "Edit" or tool_name == "StrReplace":
         path = tool_input.get("path") or tool_input.get("file_path", "")
-        return "Edit file", to_relative(path), {"path": path}
+        old_string = tool_input.get("old_string", "")
+        new_string = tool_input.get("new_string", "")
+        return "Edit file", to_relative(path), {"path": path, "old_string": old_string, "new_string": new_string}
     elif tool_name == "Delete":
         path = tool_input.get("path") or tool_input.get("file_path", "")
         return "Delete file", to_relative(path), {"path": path}

@@ -6,7 +6,7 @@
 	import DOMPurify from 'isomorphic-dompurify';
 	import type { TimelineEvent } from '$lib/api-types';
 	import { createTimelineLogic } from '$lib/utils/timelineLogic.svelte';
-	import { formatDate } from '$lib/utils';
+	import { formatDate, formatTokens, formatTokensFull, formatCost } from '$lib/utils';
 	import TimelineFilterBar from './TimelineFilterBar.svelte';
 	import TimelineEventCard from './TimelineEventCard.svelte';
 	import TimelineGap from './TimelineGap.svelte';
@@ -149,6 +149,28 @@
 	const popupNavIndex = $derived(
 		popupEvent ? navigableEvents.findIndex((e) => e.id === popupEvent!.id) : -1
 	);
+
+	// Combined timestamp + token usage description for popup
+	const popupDescription = $derived.by(() => {
+		if (!popupEvent) return '';
+		const ts = formatDate(popupEvent.timestamp);
+		const input = popupEvent.metadata?.input_tokens;
+		const output = popupEvent.metadata?.output_tokens;
+		const cacheRead = popupEvent.metadata?.cache_read_input_tokens;
+		const cacheCreate = popupEvent.metadata?.cache_creation_input_tokens;
+		const cost = popupEvent.metadata?.cost_usd;
+
+		if (!input && !output && !cacheRead && !cacheCreate && !cost) return ts;
+
+		const parts: string[] = [];
+		if (input) parts.push(`In ${formatTokensFull(input)}`);
+		if (output) parts.push(`Out ${formatTokensFull(output)}`);
+		if (cacheRead && cacheRead > 0) parts.push(`CacheRead ${formatTokensFull(cacheRead)}`);
+		if (cacheCreate && cacheCreate > 0) parts.push(`CacheCreate ${formatTokensFull(cacheCreate)}`);
+		if (cost) parts.push(`Cost ${formatCost(cost)}`);
+
+		return `${ts} (Token: ${parts.join(' | ')})`;
+	});
 
 	function navigatePrev() {
 		if (popupNavIndex > 0) openPopup(navigableEvents[popupNavIndex - 1]);
@@ -365,7 +387,7 @@
 			if (!open) closePopup();
 		}}
 		title={popupEvent.title}
-		description={formatDate(popupEvent.timestamp)}
+		description={popupDescription}
 		maxWidth="xl"
 	>
 		{#snippet headerActions()}

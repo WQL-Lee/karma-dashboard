@@ -62,8 +62,16 @@ def build_conversation_timeline(
     """
     subagent_info = subagent_info or {}
 
+    # Get tool_results_dir if available (Session has it, Agent doesn't)
+    tool_results_dir = getattr(conversation, 'tool_results_dir', None)
+
     # Pass 1: Collect all tool results for later merging
-    tool_results = collect_tool_results(conversation, extract_spawned_agent=True, parse_xml=True)
+    tool_results = collect_tool_results(
+        conversation,
+        extract_spawned_agent=True,
+        parse_xml=True,
+        tool_results_dir=tool_results_dir,
+    )
 
     # Pass 1b: Collect taskId → subject from TaskCreate calls so TaskUpdate
     # events can display the task description even though updates only send taskId + status.
@@ -161,6 +169,17 @@ def build_conversation_timeline(
             for block in msg.content_blocks:
                 event_counter += 1
 
+                # Build token metadata from AssistantMessage usage (shared by all blocks)
+                token_metadata: dict = {}
+                if msg.usage:
+                    token_metadata = {
+                        "input_tokens": msg.usage.input_tokens,
+                        "output_tokens": msg.usage.output_tokens,
+                        "cache_creation_input_tokens": msg.usage.cache_creation_input_tokens,
+                        "cache_read_input_tokens": msg.usage.cache_read_input_tokens,
+                        "cost_usd": msg.usage.calculate_cost(msg.model) if msg.model else None,
+                    }
+
                 if isinstance(block, ToolUseBlock):
                     title, summary, base_metadata = get_tool_summary(
                         block, working_dirs=working_dirs
@@ -173,6 +192,8 @@ def build_conversation_timeline(
                     metadata = _build_tool_call_metadata(
                         block, base_metadata, result_data, subagent_info, task_subjects
                     )
+                    # Merge token data (but don't override existing keys like has_result)
+                    metadata = {**token_metadata, **metadata}
 
                     # Add agent context for subagent messages
                     if msg_actor_type == "subagent":
@@ -234,7 +255,7 @@ def build_conversation_timeline(
                             actor_type=msg_actor_type,
                             title="Thinking",
                             summary=thinking_preview if thinking_preview else None,
-                            metadata={"full_thinking": block.thinking},
+                            metadata={**token_metadata, "full_thinking": block.thinking},
                         )
                     )
 
@@ -259,7 +280,7 @@ def build_conversation_timeline(
                                 actor_type=msg_actor_type,
                                 title="Big Response" if is_big else "Response",
                                 summary=text_preview,
-                                metadata=resp_metadata,
+                                metadata={**token_metadata, **resp_metadata},
                             )
                         )
 
